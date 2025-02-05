@@ -200,6 +200,48 @@ router.delete('/resources/:id', async (req, res) => {
     }
 });
 
+// Authentication Middleware
+const authenticateToken = async (req, res, next) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader?.startsWith('Bearer ')) {
+            return res.status(401).json({ message: 'No token provided' });
+        }
+
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-default-secret-key');
+        
+        const user = await prisma.user.findUnique({
+            where: { id: decoded.userId },
+            select: { id: true, email: true, role: true, name: true }
+        });
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        req.user = user;
+        next();
+    } catch (error) {
+        res.status(401).json({ message: 'Invalid token' });
+    }
+};
+
+// Role-based Authorization Middleware
+const authorize = (roles = []) => {
+    return (req, res, next) => {
+        if (!req.user) {
+            return res.status(401).json({ message: 'Not authenticated' });
+        }
+
+        if (roles.length && !roles.includes(req.user.role)) {
+            return res.status(403).json({ message: 'Not authorized' });
+        }
+
+        next();
+    };
+};
+
 // Generate Token Utility Function
 const generateToken = (userId) => {
     return jwt.sign(
@@ -282,32 +324,25 @@ app.post('/login', async (req, res) => {
     try {
         const { email, password } = req.body;
 
-        // Validate input
         if (!email || !password) {
             return res.status(400).json({
                 message: 'Please provide email and password'
             });
         }
 
-        // Find user
         const user = await prisma.user.findUnique({
             where: { email }
         });
 
-        // Check if user exists and password matches
         if (!user || !(await bcrypt.compare(password, user.password))) {
             return res.status(401).json({
-                message: 'Invalid email or password'
+                message: 'Invalid credentials'
             });
         }
 
-        // Generate token
         const token = generateToken(user.id);
-
-        // Set token in header
         res.header('Authorization', `Bearer ${token}`);
 
-        // Send response
         res.status(200).json({
             message: 'Login successful',
             data: {
@@ -322,11 +357,10 @@ app.post('/login', async (req, res) => {
                 expiresIn: '30 days'
             }
         });
-
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({
-            message: 'Error during login',
+            message: 'Error logging in',
             error: error.message
         });
     }
@@ -402,35 +436,20 @@ router.get('/resources/search', async (req, res) => {
 });
 
 // Updated to POST method with body parameters
-app.post('/resources/search', async (req, res) => {
+app.post('/resources/search', authenticateToken, async (req, res) => {
     try {
         const { 
-            subject = '', 
-            topic = '', 
-            difficulty = '', 
-            type = '',
+            subject = 'physics', 
+            topic = 'quantum mechanics', 
+            difficulty = 'easy',
+            type = 'course',
             page = 1, 
             limit = 10 
         } = req.body;
         
-        // Construct search query from body parameters
-        const searchQuery = [
-            subject,
-            topic,
-            difficulty,
-            type
-        ].filter(Boolean).join(' '); // Joins non-empty parameters with spaces
-
-        if (!searchQuery) {
-            return res.status(400).json({
-                message: 'At least one search parameter (subject, topic, difficulty, or type) is required'
-            });
-        }
-
-        // Calculate start index for pagination
+        const searchQuery = `${subject} ${topic} ${difficulty} ${type}`;
         const startIndex = ((page - 1) * limit) + 1;
 
-        // Make request to Google Custom Search API
         const searchResults = await customSearch.cse.list({
             auth: GOOGLE_API_KEY,
             cx: SEARCH_ENGINE_ID,
@@ -439,16 +458,15 @@ app.post('/resources/search', async (req, res) => {
             num: limit
         });
 
-        // Transform and structure the response
+        // Add unique ID to each resource
         const resources = searchResults.data.items?.map(item => ({
+            id: Buffer.from(item.link).toString('base64'), // Create unique ID from URL
             title: item.title,
             description: item.snippet,
             url: item.link,
             source: extractDomain(item.link),
             thumbnail: item.pagemap?.cse_thumbnail?.[0]?.src || null,
-            datePublished: item.pagemap?.metatags?.[0]?.['date.published'] || null,
-            // Include search parameters in response
-            searchParams: {
+            metadata: {
                 subject,
                 topic,
                 difficulty,
@@ -459,6 +477,12 @@ app.post('/resources/search', async (req, res) => {
         res.status(200).json({ 
             message: 'Search results retrieved successfully',
             searchQuery,
+            filters: {
+                subject,
+                topic,
+                difficulty,
+                type
+            },
             pagination: { 
                 page: parseInt(page),
                 limit: parseInt(limit),
@@ -467,7 +491,7 @@ app.post('/resources/search', async (req, res) => {
             data: resources
         });
     } catch (error) {
-        console.error('Google Search API Error:', error);
+        console.error('Search error:', error);
         res.status(500).json({ 
             message: 'Error performing search',
             error: error.message 
@@ -475,34 +499,7 @@ app.post('/resources/search', async (req, res) => {
     }
 });
 
-// Authentication Middleware
-const authenticateToken = async (req, res, next) => {
-    try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader?.startsWith('Bearer ')) {
-            return res.status(401).json({ message: 'No token provided' });
-        }
-
-        const token = authHeader.split(' ')[1];
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-default-secret-key');
-        
-        const user = await prisma.user.findUnique({
-            where: { id: decoded.userId },
-            select: { id: true, email: true, role: true }
-        });
-
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        req.user = user;
-        next();
-    } catch (error) {
-        res.status(401).json({ message: 'Invalid token' });
-    }
-};
-
-// Protected route example - User profile
+// Test protected route
 app.get('/api/profile', authenticateToken, async (req, res) => {
     try {
         const user = await prisma.user.findUnique({
@@ -516,15 +513,86 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
             }
         });
 
-        res.status(200).json({
+        res.json({
             message: 'Profile retrieved successfully',
             data: user
         });
     } catch (error) {
-        res.status(500).json({
-            message: 'Error retrieving profile',
-            error: error.message
+        res.status(500).json({ message: 'Error retrieving profile' });
+    }
+});
+
+// Example of a route that requires admin role
+app.get('/api/admin', authenticateToken, authorize(['ADMIN']), (req, res) => {
+    res.json({ message: 'Admin access granted' });
+});
+
+// Modified bookmark route to create resource first
+app.post('/api/bookmarks', authenticateToken, async (req, res) => {
+    try {
+        const { resourceId, title, url, description, type = 'COURSE', difficulty = 'BEGINNER' } = req.body;
+
+        // First, create the resource
+        const resource = await prisma.resource.create({
+            data: {
+                id: resourceId,
+                title: title || 'Untitled Resource',
+                description: description || '',
+                url: url || '',
+                type: type,
+                difficulty: difficulty,
+                source: 'OTHER',
+                subject: {
+                    connectOrCreate: {
+                        where: { name: 'Physics' },
+                        create: { name: 'Physics', description: 'Physics resources' }
+                    }
+                }
+            }
         });
+
+        // Then create the bookmark
+        const bookmark = await prisma.bookmark.create({
+            data: {
+                userId: req.user.id,
+                resourceId: resource.id
+            },
+            include: {
+                resource: true
+            }
+        });
+
+        res.status(201).json({
+            message: 'Resource bookmarked successfully',
+            data: bookmark
+        });
+    } catch (error) {
+        console.error('Bookmark error:', error);
+        res.status(500).json({ 
+            message: 'Error creating bookmark',
+            error: error.message 
+        });
+    }
+});
+
+// Get bookmarks route
+app.get('/api/bookmarks', authenticateToken, async (req, res) => {
+    try {
+        const bookmarks = await prisma.bookmark.findMany({
+            where: {
+                userId: req.user.id
+            },
+            include: {
+                resource: true
+            }
+        });
+
+        res.json({
+            message: 'Bookmarks retrieved successfully',
+            data: bookmarks
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Error retrieving bookmarks' });
     }
 });
 
