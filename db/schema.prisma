@@ -1,0 +1,190 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url  	    = env("DATABASE_URL")
+}
+
+model User {
+  id             String           @id @default(uuid())
+  email          String           @unique
+  password       String
+  name           String
+  role           UserRole         @default(STUDENT)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  bookmarks      Bookmark[]
+  progress       Progress[]
+  reviews        Review[]
+  preferences    UserPreference?
+  learningPaths  LearningPath[]
+  notifications  Notification[]
+}
+
+enum UserRole {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+model Resource {
+  id          String        @id @default(uuid())
+  title       String
+  description String?       @db.Text
+  content     String?       @db.Text
+  url         String
+  sourceType  SourceType
+  contentType ContentType
+  subject     Subject       @relation(fields: [subjectId], references: [id])
+  subjectId   String
+  difficulty  Difficulty
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  bookmarks   Bookmark[]
+  progress    Progress[]
+  reviews     Review[]
+  tags        Tag[]
+  modules     Module[]
+}
+
+enum SourceType {
+  COURSERA
+  EDX
+  KHAN_ACADEMY
+  MIT_OPENCOURSEWARE
+  YOUTUBE
+  CUSTOM
+  OTHER
+}
+
+enum ContentType {
+  VIDEO
+  ARTICLE
+  COURSE
+  DOCUMENT
+  QUIZ
+  EXERCISE
+  INTERACTIVE
+}
+
+enum Difficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+model Subject {
+  id          String     @id @default(uuid())
+  name        String     @unique
+  description String?    @db.Text
+  resources   Resource[]
+  parentId    String?
+  parent      Subject?   @relation("SubjectHierarchy", fields: [parentId], references: [id])
+  children    Subject[]  @relation("SubjectHierarchy")
+}
+
+model Progress {
+  id         String   @id @default(uuid())
+  user       User     @relation(fields: [userId], references: [id])
+  userId     String
+  resource   Resource @relation(fields: [resourceId], references: [id])
+  resourceId String
+  status     Status   @default(IN_PROGRESS)
+  percentage Int      @default(0)
+  lastAccessed DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, resourceId])
+}
+
+enum Status {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+model Bookmark {
+  id         String   @id @default(uuid())
+  user       User     @relation(fields: [userId], references: [id])
+  userId     String
+  resource   Resource @relation(fields: [resourceId], references: [id])
+  resourceId String
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, resourceId])
+}
+
+model Review {
+  id         String   @id @default(uuid())
+  user       User     @relation(fields: [userId], references: [id])
+  userId     String
+  resource   Resource @relation(fields: [resourceId], references: [id])
+  resourceId String
+  rating     Int      @db.SmallInt
+  comment    String?  @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, resourceId])
+}
+
+model Tag {
+  id        String     @id @default(uuid())
+  name      String     @unique
+  resources Resource[]
+}
+
+model UserPreference {
+  id                String   @id @default(uuid())
+  user              User     @relation(fields: [userId], references: [id])
+  userId            String   @unique
+  preferredSubjects String[] // Array of subject IDs
+  emailNotifications Boolean  @default(true)
+  language          String   @default("en")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model LearningPath {
+  id          String   @id @default(uuid())
+  name        String
+  description String?  @db.Text
+  user        User     @relation(fields: [userId], references: [id])
+  userId      String
+  modules     Module[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Module {
+  id             String       @id @default(uuid())
+  name           String
+  description    String?      @db.Text
+  order          Int
+  learningPath   LearningPath @relation(fields: [learningPathId], references: [id])
+  learningPathId String
+  resources      Resource[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  user      User             @relation(fields: [userId], references: [id])
+  userId    String
+  type      NotificationType
+  message   String
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+}
+
+enum NotificationType {
+  PROGRESS_UPDATE
+  RESOURCE_RECOMMENDATION
+  SYSTEM_UPDATE
+  ACHIEVEMENT
+}

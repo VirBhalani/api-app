@@ -1,0 +1,69 @@
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.log
+log*.log
+logs/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build and output directories
+dist/
+build/
+.cache/
+.out/
+
+# Dependencies
+.bower_components/
+jspm_packages/
+
+# Test coverage reports
+coverage/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# Docker files
+docker-compose.override.yml
+
+# Misc
+.nyc_output/
+.eslintcache
+.next/
+.vercel/
+.netlify/
