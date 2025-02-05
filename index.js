@@ -1,9 +1,12 @@
 require('dotenv').config();
 const express = require('express');
 const { google } = require('googleapis');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 const router = express.Router();
 const app = express();
-
 // Configure Google Custom Search
 const customSearch = google.customsearch('v1');
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
@@ -197,17 +200,135 @@ router.delete('/resources/:id', async (req, res) => {
     }
 });
 
-// Add user registration endpoint
-router.post('/auth/register', async (req, res) => {
+// Generate Token Utility Function
+const generateToken = (userId) => {
+    return jwt.sign(
+        { userId },
+        process.env.JWT_SECRET || 'your-default-secret-key',
+        { expiresIn: '30d' }
+    );
+};
+
+// Test route
+app.get('/test', (req, res) => {
+    res.json({ message: 'Server is working!' });
+});
+
+// Registration route
+app.post('/register', async (req, res) => {
+    console.log('Registration request received:', req.body);
     try {
         const { email, password, name } = req.body;
-        // TODO: Implement user registration with password hashing
+
+        if (!email || !password || !name) {
+            return res.status(400).json({
+                message: 'Please provide email, password, and name'
+            });
+        }
+
+        const existingUser = await prisma.user.findUnique({
+            where: { email: email }
+        });
+
+        if (existingUser) {
+            return res.status(400).json({
+                message: 'User with this email already exists'
+            });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        const user = await prisma.user.create({
+            data: {
+                email,
+                password: hashedPassword,
+                name,
+                role: 'STUDENT'
+            },
+            select: {
+                id: true,
+                email: true,
+                name: true,
+                role: true,
+                createdAt: true
+            }
+        });
+
+        const token = generateToken(user.id);
+        res.header('Authorization', `Bearer ${token}`);
+
         res.status(201).json({
             message: 'User registered successfully',
-            data: { email, name }
+            data: { 
+                user,
+                token,
+                tokenType: 'Bearer',
+                expiresIn: '30 days'
+            }
         });
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        console.error('Registration error:', error);
+        res.status(500).json({
+            message: 'Error registering user',
+            error: error.message
+        });
+    }
+});
+
+// Login route with generateToken
+app.post('/login', async (req, res) => {
+    console.log('Login request received:', req.body);
+    try {
+        const { email, password } = req.body;
+
+        // Validate input
+        if (!email || !password) {
+            return res.status(400).json({
+                message: 'Please provide email and password'
+            });
+        }
+
+        // Find user
+        const user = await prisma.user.findUnique({
+            where: { email }
+        });
+
+        // Check if user exists and password matches
+        if (!user || !(await bcrypt.compare(password, user.password))) {
+            return res.status(401).json({
+                message: 'Invalid email or password'
+            });
+        }
+
+        // Generate token
+        const token = generateToken(user.id);
+
+        // Set token in header
+        res.header('Authorization', `Bearer ${token}`);
+
+        // Send response
+        res.status(200).json({
+            message: 'Login successful',
+            data: {
+                user: {
+                    id: user.id,
+                    email: user.email,
+                    name: user.name,
+                    role: user.role
+                },
+                token,
+                tokenType: 'Bearer',
+                expiresIn: '30 days'
+            }
+        });
+
+    } catch (error) {
+        console.error('Login error:', error);
+        res.status(500).json({
+            message: 'Error during login',
+            error: error.message
+        });
     }
 });
 
@@ -350,6 +471,59 @@ app.post('/resources/search', async (req, res) => {
         res.status(500).json({ 
             message: 'Error performing search',
             error: error.message 
+        });
+    }
+});
+
+// Authentication Middleware
+const authenticateToken = async (req, res, next) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader?.startsWith('Bearer ')) {
+            return res.status(401).json({ message: 'No token provided' });
+        }
+
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-default-secret-key');
+        
+        const user = await prisma.user.findUnique({
+            where: { id: decoded.userId },
+            select: { id: true, email: true, role: true }
+        });
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        req.user = user;
+        next();
+    } catch (error) {
+        res.status(401).json({ message: 'Invalid token' });
+    }
+};
+
+// Protected route example - User profile
+app.get('/api/profile', authenticateToken, async (req, res) => {
+    try {
+        const user = await prisma.user.findUnique({
+            where: { id: req.user.id },
+            select: {
+                id: true,
+                email: true,
+                name: true,
+                role: true,
+                createdAt: true
+            }
+        });
+
+        res.status(200).json({
+            message: 'Profile retrieved successfully',
+            data: user
+        });
+    } catch (error) {
+        res.status(500).json({
+            message: 'Error retrieving profile',
+            error: error.message
         });
     }
 });

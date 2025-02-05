@@ -1,7 +1,18 @@
 {
+  "scripts": {
+    "start": "node --force-node-api-uncaught-exceptions-policy=true index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:studio": "prisma studio"
+  },
   "dependencies": {
+    "@prisma/client": "^6.3.1",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "googleapis": "^144.0.0"
+    "googleapis": "^144.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "prisma": "^6.3.1"
   }
 }
